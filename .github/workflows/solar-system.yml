@@ -1,0 +1,26 @@
+name: 'Solar System Workflow'  # The name of your workflow
+
+on:                             # Define the events that trigger the workflow
+  workflow_dispatch:           # Allows manual trigger via the GitHub Actions UI
+  push:                        # Triggered on a git push to the specified branches
+    branches:
+      - main                   # Trigger on push to the 'main' branch
+      - 'feature/*'           # Trigger on push to any branch that matches the pattern 'feature/*'
+jobs:
+    unit-testing:
+      runs-on: ubuntu-latest
+      steps:
+      - name: checkout repositorty
+        uses: actions/checkout@v4
+
+      - name: setup nodejs
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: install dependencies
+        run: npm install
+        
+      - name: unit testing
+        run: npm test
+
