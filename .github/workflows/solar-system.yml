@@ -36,7 +36,7 @@ jobs:
           path: test-results.xml
 
     coverage-testing:
-      runs-on: ubuntu latest
+      runs-on: ubuntu-latest
       steps:
       - name: checkout repositorty
         uses: actions/checkout@v4
