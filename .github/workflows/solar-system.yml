@@ -6,6 +6,11 @@ on:                             # Define the events that trigger the workflow
     branches:
       - main                   # Trigger on push to the 'main' branch
       - 'feature/*'           # Trigger on push to any branch that matches the pattern 'feature/*'
+
+env:
+    MONGO_URI: ${{ vars.MONGO_URI }}
+    MONGO_USERNAME: ${{ vars.MONGO_USERNAME }}
+    MONGO_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
 jobs:
     unit-testing:
       runs-on: ubuntu-latest
