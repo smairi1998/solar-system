@@ -38,6 +38,7 @@ jobs:
         run: npm test
 
       - name: archive test result
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-result-${{ matrix.nodejs-version }}-${{ matrix.operating_system }}
