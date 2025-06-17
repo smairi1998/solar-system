@@ -162,7 +162,7 @@ jobs:
     needs: docker
     runs-on: ubuntu-latest
     outputs:
-      APP_INGRESS_URL: ${{steps.set-ingress-host-address.outputs.APP_INRESS_HOST }}
+      APP_INGRESS_URL: ${{ steps.set-ingress-host-address.outputs.APP_INGRESS_HOST }}
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v4
