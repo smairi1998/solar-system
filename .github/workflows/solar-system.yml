@@ -209,7 +209,7 @@ jobs:
           --from-literal=MONGO_PASSWORD=${{secrets.MONGO_PASSWORD}} \
           --save-config \
           --dry-run=client \
-          -o yaml | kubectl applt -f -
+          -o yaml | kubectl apply -f -
 
       - name: Deplot to Dev Env
         run: |
