@@ -40,7 +40,7 @@ jobs:
       - name: archive test result
         uses: actions/upload-artifact@v4
         with:
-          name: test-result
+          name: test-result-${{ matrix.nodejs-version }}-${{ matrix.operating_system }}
           path: test-results.xml
 
     coverage-testing:
