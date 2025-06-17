@@ -156,11 +156,13 @@ jobs:
         push: true
         tags: |
           ${{ vars.DOCKERHUB_USERNAME }}/solar-system:${{ github.sha}}
-          ghcr.io/${{ github.repository_owner }}/solar-system:${{ github.sha}}
+  #ghcr.io/${{ github.repository_owner }}/solar-system:${{ github.sha}}
 
   dev-deploy:
     needs: docker
     runs-on: ubuntu-latest
+    outputs:
+      APP_INGRESS_URL: ${{steps.set-ingress-host-address.outputs.APP_INRESS_HOST }}
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v4
@@ -200,10 +202,9 @@ jobs:
       - name: check kubernetes files
         run: cat  kubernetes/development/*.yaml
       
-
       - name: create MongoDB Secret
         run: |
-          kubectl -n ${{vars.NAMESPACE }} create secret generic mongo-db-creds \
+          kubectl -n ${{ vars.NAMESPACE }} create secret generic mongo-db-creds \
           --from-literal=MONGO_URI=${{ env.MONGO_URI}} \
           --from-literal=MONGO_USERNAME=${{env.MONGO_USERNAME}} \
           --from-literal=MONGO_PASSWORD=${{secrets.MONGO_PASSWORD}} \
@@ -211,6 +212,24 @@ jobs:
           --dry-run=client \
           -o yaml | kubectl apply -f -
 
-      - name: Deplot to Dev Env
+      - name: Deploy to Dev Env
         run: |
           kubectl apply -f kubernetes/development
+
+      - name: Set App ingress Host URL
+        id: set-ingress-host-address
+        run: |
+          echo "APP_INRESS_HOST=$(kubectl -n ${{ vars.NAMESPACE}}) get ingress -o jsonpath="{.items[0].spec.tls[0].hosts[0]}")" >> "$GITHUB_OUTPUT"
+
+  integration-testing:
+    name: dev Integration Testing
+    needs: dev-deploy
+    runs-on: ubuntu-latest
+    steps:
+    - name: Test URL Output using CURL and JQ
+      env:
+        URL: ${{needs.dev-deploy.outputs.APP_INGRESS_URL}}
+      run: |
+        echo $URL
+        echo "-------------------------------------"
+        curl https://$URL/live -s -k | js -r .status | grep .status | grep -i live
