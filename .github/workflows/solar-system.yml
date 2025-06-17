@@ -38,10 +38,9 @@ jobs:
         run: npm test
 
       - name: archive test result
-        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-result-${{ matrix.nodejs-version }}-${{ matrix.nodejs-version }}
+          name: test-result
           path: test-results.xml
 
     coverage-testing:
@@ -65,6 +64,6 @@ jobs:
       - name: archive test result
         uses: actions/upload-artifact@v4
         with:
-          name: code-coverage-result-18-ubuntu-latest
+          name: code-coverage-result
           path: coverage
           retention-days: 5
