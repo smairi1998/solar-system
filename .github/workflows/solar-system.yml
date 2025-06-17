@@ -41,7 +41,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-result
+          name: test-result-${{ matrix.nodejs-version }}-${{ matrix.nodejs-version }}
           path: test-results.xml
 
     coverage-testing:
@@ -65,6 +65,6 @@ jobs:
       - name: archive test result
         uses: actions/upload-artifact@v4
         with:
-          name: code-coverage-result
+          name: code-coverage-result-18-ubuntu-latest
           path: coverage
           retention-days: 5
