@@ -251,6 +251,7 @@ jobs:
 
   slackNotification:
     name: Slack Notification
+    if: always()
     continue-on-error: true
     runs-on: ubuntu-latest
     steps:
