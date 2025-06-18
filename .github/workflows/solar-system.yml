@@ -127,118 +127,140 @@ jobs:
         mv test-results.xml reports-${{github.sha}}
         ls -ltr reports-${{github.sha}}
     
-    - name: Upload to AWS S3
-      run: echo "Uploading......."
+    # - name: Upload to AWS S3
+    #   uses: jakejarvis/s3-sync-action@master
+    #   with:
+    #     args: --acl public-read --follow-symlinks --delete
+    #   env:
+    #     AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+    #     AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+    #     AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    #     AWS_REGION: 'us-west-1'   # optional: defaults to us-east-1
+    #     SOURCE_DIR: 'public'      # optional: defaults to entire repository
+  docker:
+    permissions: 
+      packages: write
+    name: Containerization
+    needs: [unit-testing, coverage-testing]
+    runs-on: ubuntu-latest
+    steps:
+    - name: checkout repositorty
+      uses: actions/checkout@v4
 
-  # docker:
-  #   permissions: 
-  #     packages: write
-  #   name: Containerization
-  #   needs: [unit-testing, coverage-testing]
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #   - name: checkout repositorty
-  #     uses: actions/checkout@v4
+    - name: Dockerhub Login
+      uses: docker/login-action@v3
+      with:
+        username: ${{ vars.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-  #   - name: Dockerhub Login
-  #     uses: docker/login-action@v3
-  #     with:
-  #       username: ${{ vars.DOCKERHUB_USERNAME }}
-  #       password: ${{ secrets.DOCKERHUB_PASSWORD }}
-
-  #   - name: GHCR Login
-  #     uses: docker/login-action@v3
-  #     with:
-  #       registry: ghcr.io
-  #       username: ${{ github.repository_owner }}
-  #       password: ${{ secrets.GITHUB_TOKEN }}    
+    - name: GHCR Login
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.repository_owner }}
+        password: ${{ secrets.GITHUB_TOKEN }}    
           
-  #   - name: Docker Build for testing
-  #     uses: docker/build-push-action@v4
-  #     with:
-  #       context: .
-  #       push: false
-  #       tags: ${{ vars.DOCKERHUB_USERNAME }}/solar-system:${{ github.sha}}
+    - name: Docker Build for testing
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        push: false
+        tags: ${{ vars.DOCKERHUB_USERNAME }}/solar-system:${{ github.sha}}
     
-  #   - name: Docker Image Testing
-  #     run: |
-  #       docker images
-  #       docker run --name solar-system-app -d \
-  #           -p 3000:3000 \
-  #           -e MONGO_URI=$MONGO_URI \
-  #           -e MONGO_USERNAME=$MONGO_USERNAME \
-  #           -e MONGO_PASSWORD=$MONGO_PASSWORD \
-  #           ${{ vars.DOCKERHUB_USERNAME }}/solar-system:${{ github.sha}}
+    - name: Docker Image Testing
+      run: |
+        docker images
+        docker run --name solar-system-app -d \
+            -p 3000:3000 \
+            -e MONGO_URI=$MONGO_URI \
+            -e MONGO_USERNAME=$MONGO_USERNAME \
+            -e MONGO_PASSWORD=$MONGO_PASSWORD \
+            ${{ vars.DOCKERHUB_USERNAME }}/solar-system:${{ github.sha}}
         
-  #       export IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' solar-system-app)
-  #       echo $IP
+        export IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' solar-system-app)
+        echo $IP
 
-  #       echo Testing Image URL using wget
-  #       wget -q -O - 127.0.0.1:3000/live | grep live
+        echo Testing Image URL using wget
+        wget -q -O - 127.0.0.1:3000/live | grep live
 
-  #   - name: Docker Push
-  #     uses: docker/build-push-action@v4
-  #     with:
-  #       context: .
-  #       push: true
-  #       tags: |
-  #         ${{ vars.DOCKERHUB_USERNAME }}/solar-system:${{ github.sha}}
-  # #ghcr.io/${{ github.repository_owner }}/solar-system:${{ github.sha}}
+    - name: Docker Push
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        push: true
+        tags: |
+          ${{ vars.DOCKERHUB_USERNAME }}/solar-system:${{ github.sha}}
+  #ghcr.io/${{ github.repository_owner }}/solar-system:${{ github.sha}}
 
-  # dev-deploy:
-  #   if: contains(github.ref, 'feature/')
-  #   needs: docker
-  #   uses: ./.github/workflows/reuse-deployment.yml
-  #   secrets:
-  #     k8s-kubeconfig: ${{secrets.KUBECONFIG}}
-  #     mongodb-password: ${{secrets.MONGO_PASSWORD}}
-  #   with:
-  #     mongodb-uri: ${{ vars.MONGO_URI }}
-  #     mongodb-username: ${{ vars.MONGO_USERNAME }}
-  #     environment: development
-  #     kubectl-version: "v1.30.13"
-  #     k8s-manifest-dir: "kubernetes/development/"
+  dev-deploy:
+    if: contains(github.ref, 'feature/')
+    needs: docker
+    uses: ./.github/workflows/reuse-deployment.yml
+    secrets:
+      k8s-kubeconfig: ${{secrets.KUBECONFIG}}
+      mongodb-password: ${{secrets.MONGO_PASSWORD}}
+    with:
+      mongodb-uri: ${{ vars.MONGO_URI }}
+      mongodb-username: ${{ vars.MONGO_USERNAME }}
+      environment: development
+      kubectl-version: "v1.30.13"
+      k8s-manifest-dir: "kubernetes/development/"
 
-  # dev-integration-testing:
-  #   if: contains(github.ref, 'feature/')
-  #   name: dev Integration Testing
-  #   needs: dev-deploy
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #   - name: Test URL Output using CURL and JQ
-  #     env:
-  #       URL: ${{needs.dev-deploy.outputs.application-url}}
-  #     run: |
-  #       echo $URL
-  #       echo "-------------------------------------"
-  #       curl https://$URL/live -s -k | jq -r .status | grep -i live
+  dev-integration-testing:
+    if: contains(github.ref, 'feature/')
+    name: dev Integration Testing
+    needs: dev-deploy
+    runs-on: ubuntu-latest
+    steps:
+    - name: Test URL Output using CURL and JQ
+      env:
+        URL: ${{needs.dev-deploy.outputs.application-url}}
+      run: |
+        echo $URL
+        echo "-------------------------------------"
+        curl https://$URL/live -s -k | jq -r .status | grep -i live
 
-  # prod-deploy:
-  #   needs: docker
-  #   if: github.ref == 'refs/heads/main'
-  #   uses: ./.github/workflows/reuse-deployment.yml
-  #   secrets:
-  #     k8s-kubeconfig: ${{secrets.KUBECONFIG}}
-  #     mongodb-password: ${{secrets.MONGO_PASSWORD}}
-  #   with:
-  #     mongodb-uri: ${{ vars.MONGO_URI }}
-  #     mongodb-username: ${{ vars.MONGO_USERNAME }}
-  #     environment: production
-  #     kubectl-version: "v1.30.13"
-  #     k8s-manifest-dir: "kubernetes/production/"
+  prod-deploy:
+    needs: docker
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/reuse-deployment.yml
+    secrets:
+      k8s-kubeconfig: ${{secrets.KUBECONFIG}}
+      mongodb-password: ${{secrets.MONGO_PASSWORD}}
+    with:
+      mongodb-uri: ${{ vars.MONGO_URI }}
+      mongodb-username: ${{ vars.MONGO_USERNAME }}
+      environment: production
+      kubectl-version: "v1.30.13"
+      k8s-manifest-dir: "kubernetes/production/"
 
 
-  # prod-integration-testing:
-  #   if: github.ref == 'refs/heads/main'
-  #   name: dev Integration Testing
-  #   needs: prod-deploy
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #   - name: Test URL Output using CURL and JQ
-  #     env:
-  #       URL: ${{needs.prod-deploy.outputs.application-url}}
-  #     run: |
-  #       echo $URL
-  #       echo "-------------------------------------"
-  #       curl https://$URL/live -s -k | jq -r .status | grep -i live
+  prod-integration-testing:
+    if: github.ref == 'refs/heads/main'
+    name: dev Integration Testing
+    needs: prod-deploy
+    runs-on: ubuntu-latest
+    steps:
+    - name: Test URL Output using CURL and JQ
+      env:
+        URL: ${{needs.prod-deploy.outputs.application-url}}
+      run: |
+        echo $URL
+        echo "-------------------------------------"
+        curl https://$URL/live -s -k | jq -r .status | grep -i live
 
+  slackNotification:
+    name: Slack Notification
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Slack Notification
+      uses: rtCamp/action-slack-notify@v2
+      env:
+        SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+        SLACK_CHANNEL: github-actions-channel
+        SLACK_COLOR: ${{ job.status }}
+        SLACK_ICON: https://github.com/smairi1998/solar-system/-/raw/main/images/saturn.png
+        SLACK_MESSAGE: "':hammer_and_wrench' triggered by ${{github.actor}}"
+        SLACK_TITLE: Information
