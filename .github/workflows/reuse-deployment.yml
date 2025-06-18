@@ -1,0 +1,102 @@
+name: Deployment - Reusable Workflow
+
+on:
+  workflow_call:
+    inputs:
+      mongodb-uri:
+        required: true
+        type: string
+      mongodb-username:
+        required: true
+        type: string
+      kubectl-version:
+        description: Provide the required Kubectl version
+        default: v1.30.13
+        required: false
+        type: string
+      k8s-manifest-dir:
+        description: Directory containing Kubernetes manifests files
+        default: kubernetes/
+        required: true
+        type: string
+      environment:
+        description: Provide the deployed Environment
+        default: dev
+        required: true
+        type: string
+
+    secrets:
+      k8s-kubeconfig:
+        required: true
+      mongodb-password:
+        required: true
+
+    outputs:
+      application-url:
+        value: ${{ jobs.reuse-deploy.outputs.APP_INGRESS_URL }}
+jobs:
+  reuse-deploy:
+    environment: 
+      name: ${{inputs.environment}}
+      url: https://${{ steps.set-ingress-host-address.outputs.APP_INGRESS_HOST }}
+    runs-on: ubuntu-latest
+    outputs:
+      APP_INGRESS_URL: ${{ steps.set-ingress-host-address.outputs.APP_INGRESS_HOST }}
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+      
+      - name: install kubectl CLI
+        uses: azure/setup-kubectl@v3
+        with:
+          version: ${{inputs.kubectl-version}}
+      
+      - name: set kubeconfig
+        uses: azure/k8s-set-context@v3
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.k8s-kubeconfig }}
+      
+      - name: Fetch kubernetes Cluster Details
+        run: |
+          kubectl version
+          echo --------------------------------------
+          kubectl get nodes
+
+      - name: save Nginx ingress controller ip as a github Environment Variable
+        run: echo "INGRESS_IP=$(kubectl get -n ingress-nginx service ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}')" >> $GITHUB_ENV
+
+      - name: replace token in manifest files
+        uses: cschleiden/replace-tokens@v1
+        with:
+          tokenPrefix: '_{_'
+          tokenSuffix: '_}_'
+          files: '["${{inputs.k8s-manifest-dir}}*.yaml"]'
+        env:
+          NAMESPACE: ${{ vars.NAMESPACE }}
+          REPLICAS: ${{ vars.REPLICAS}}
+          IMAGE: ${{ vars.DOCKERHUB_USERNAME }}/solar-system:${{ github.sha}}
+          INGRESS_IP: ${{ env.INGRESS_IP }}
+
+      - name: check kubernetes files
+        run: cat ${{inputs.k8s-manifest-dir}}*.yaml
+      
+      - name: create MongoDB Secret
+        run: |
+          kubectl -n ${{ vars.NAMESPACE }} create secret generic mongo-db-creds \
+          --from-literal=MONGO_URI=${{ inputs.mongodb-uri}} \
+          --from-literal=MONGO_USERNAME=${{inputs.mongodb-username}} \
+          --from-literal=MONGO_PASSWORD=${{secrets.mongodb-password}} \
+          --save-config \
+          --dry-run=client \
+          -o yaml | kubectl apply -f -
+
+      - name: Deploy to Dev Env
+        run: |
+          kubectl apply -f ${{inputs.k8s-manifest-dir}}
+
+      - name: Set App ingress Host URL
+        id: set-ingress-host-address
+        run: |
+          HOST=$(kubectl -n ${{ vars.NAMESPACE }} get ingress -o jsonpath="{.items[0].spec.tls[0].hosts[0]}")
+          echo "APP_INGRESS_HOST=$HOST" >> "$GITHUB_OUTPUT"

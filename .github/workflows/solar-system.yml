@@ -24,7 +24,7 @@ jobs:
         MONGO_PASSWORD: non-prod-password
     strategy:
       matrix:
-        nodejs-version: [18, 20]
+        nodejs-version: [18]
         operating_system: [ubuntu-latest]
     runs-on: ${{ matrix.operating_system }}
     steps:
@@ -36,14 +36,10 @@ jobs:
       with:
         node-version: ${{ matrix.nodejs-version }}
     
-    - name: Cache NPM dependencies
-      uses: actions/cache@v4
+    - name: composite Action - Cache & install NPM packages
+      uses: ./.github/custom-actions/npm-action
       with:
-        path: node_modules
-        key: ${{ runner.os }}-node-modules-${{ hashFiles('package-lock.json') }}
-
-    - name: install dependencies
-      run: npm install
+        path-of-folder: node_modules
       
     - name: unit testing
       id: node-unit-testing-step
@@ -53,7 +49,7 @@ jobs:
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: test-result-${{ matrix.nodejs-version }}-${{ matrix.operating_system }}
+        name: test-result
         path: test-results.xml
 
   coverage-testing:
@@ -103,6 +99,40 @@ jobs:
         path: coverage
         retention-days: 5
   
+  report-s3:
+    needs: [coverage-testing, unit-testing]
+    name: AWS S# - Upload Reports
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+    - name: Download Mocha Test Artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: test-result
+    
+    - name: download code Coverage artifcat
+      uses: actions/download-artifact@v4
+      with:
+        name: code-coverage-result
+    
+    - name: Merge Test Files
+      run: |
+        ls -ltr
+        mkdir reports-${{github.sha}}
+        mv cobertura-coverage.xml reports-${{github.sha}}
+        mv test-results.xml reports-${{github.sha}}
+        ls -ltr reports-${{github.sha}}
+    
+    # - name: Upload to AWS S3
+    #   uses: jakejarvis/s3-sync-action@master
+    #   with:
+    #     args: --acl public-read --follow-symlinks --delete
+    #   env:
+    #     AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+    #     AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+    #     AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    #     AWS_REGION: 'us-west-1'   # optional: defaults to us-east-1
+    #     SOURCE_DIR: 'public'      # optional: defaults to entire repository
   docker:
     permissions: 
       packages: write
@@ -161,70 +191,16 @@ jobs:
   dev-deploy:
     if: contains(github.ref, 'feature/')
     needs: docker
-    environment: 
-      name: development
-      url: https://${{ steps.set-ingress-host-address.outputs.APP_INGRESS_HOST }}
-    runs-on: ubuntu-latest
-    outputs:
-      APP_INGRESS_URL: ${{ steps.set-ingress-host-address.outputs.APP_INGRESS_HOST }}
-    steps:
-      - name: Checkout Repo
-        uses: actions/checkout@v4
-      
-      - name: install kubectl CLI
-        uses: azure/setup-kubectl@v3
-        with:
-          version: 'v1.30.13'
-      
-      - name: set kubeconfig
-        uses: azure/k8s-set-context@v3
-        with:
-          method: kubeconfig
-          kubeconfig: ${{ secrets.KUBECONFIG }}
-      
-      - name: Fetch kubernetes Cluster Details
-        run: |
-          kubectl version
-          echo --------------------------------------
-          kubectl get nodes
-
-      - name: save Nginx ingress controller ip as a github Environment Variable
-        run: echo "INGRESS_IP=$(kubectl get -n ingress-nginx service ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}')" >> $GITHUB_ENV
-
-      - name: replace token in manifest files
-        uses: cschleiden/replace-tokens@v1
-        with:
-          tokenPrefix: '_{_'
-          tokenSuffix: '_}_'
-          files: '["kubernetes/development/*.yaml"]'
-        env:
-          NAMESPACE: ${{ vars.NAMESPACE }}
-          REPLICAS: ${{ vars.REPLICAS}}
-          IMAGE: ${{ vars.DOCKERHUB_USERNAME }}/solar-system:${{ github.sha}}
-          INGRESS_IP: ${{ env.INGRESS_IP }}
-
-      - name: check kubernetes files
-        run: cat  kubernetes/development/*.yaml
-      
-      - name: create MongoDB Secret
-        run: |
-          kubectl -n ${{ vars.NAMESPACE }} create secret generic mongo-db-creds \
-          --from-literal=MONGO_URI=${{ env.MONGO_URI}} \
-          --from-literal=MONGO_USERNAME=${{env.MONGO_USERNAME}} \
-          --from-literal=MONGO_PASSWORD=${{secrets.MONGO_PASSWORD}} \
-          --save-config \
-          --dry-run=client \
-          -o yaml | kubectl apply -f -
-
-      - name: Deploy to Dev Env
-        run: |
-          kubectl apply -f kubernetes/development
-
-      - name: Set App ingress Host URL
-        id: set-ingress-host-address
-        run: |
-          HOST=$(kubectl -n ${{ vars.NAMESPACE }} get ingress -o jsonpath="{.items[0].spec.tls[0].hosts[0]}")
-          echo "APP_INGRESS_HOST=$HOST" >> "$GITHUB_OUTPUT"
+    uses: ./.github/workflows/reuse-deployment.yml
+    secrets:
+      k8s-kubeconfig: ${{secrets.KUBECONFIG}}
+      mongodb-password: ${{secrets.MONGO_PASSWORD}}
+    with:
+      mongodb-uri: ${{ vars.MONGO_URI }}
+      mongodb-username: ${{ vars.MONGO_USERNAME }}
+      environment: development
+      kubectl-version: "v1.30.13"
+      k8s-manifest-dir: "kubernetes/development/"
 
   dev-integration-testing:
     if: contains(github.ref, 'feature/')
@@ -234,7 +210,7 @@ jobs:
     steps:
     - name: Test URL Output using CURL and JQ
       env:
-        URL: ${{needs.dev-deploy.outputs.APP_INGRESS_URL}}
+        URL: ${{needs.dev-deploy.outputs.application-url}}
       run: |
         echo $URL
         echo "-------------------------------------"
@@ -243,70 +219,17 @@ jobs:
   prod-deploy:
     needs: docker
     if: github.ref == 'refs/heads/main'
-    environment: 
-      name: production
-      url: https://${{ steps.set-ingress-host-address.outputs.APP_INGRESS_HOST }}
-    runs-on: ubuntu-latest
-    outputs:
-      APP_INGRESS_URL: ${{ steps.set-ingress-host-address.outputs.APP_INGRESS_HOST }}
-    steps:
-      - name: Checkout Repo
-        uses: actions/checkout@v4
-      
-      - name: install kubectl CLI
-        uses: azure/setup-kubectl@v3
-        with:
-          version: 'v1.30.13'
-      
-      - name: set kubeconfig
-        uses: azure/k8s-set-context@v3
-        with:
-          method: kubeconfig
-          kubeconfig: ${{ secrets.KUBECONFIG }}
-      
-      - name: Fetch kubernetes Cluster Details
-        run: |
-          kubectl version
-          echo --------------------------------------
-          kubectl get nodes
+    uses: ./.github/workflows/reuse-deployment.yml
+    secrets:
+      k8s-kubeconfig: ${{secrets.KUBECONFIG}}
+      mongodb-password: ${{secrets.MONGO_PASSWORD}}
+    with:
+      mongodb-uri: ${{ vars.MONGO_URI }}
+      mongodb-username: ${{ vars.MONGO_USERNAME }}
+      environment: production
+      kubectl-version: "v1.30.13"
+      k8s-manifest-dir: "kubernetes/production/"
 
-      - name: save Nginx ingress controller ip as a github Environment Variable
-        run: echo "INGRESS_IP=$(kubectl get -n ingress-nginx service ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}')" >> $GITHUB_ENV
-
-      - name: replace token in manifest files
-        uses: cschleiden/replace-tokens@v1
-        with:
-          tokenPrefix: '_{_'
-          tokenSuffix: '_}_'
-          files: '["kubernetes/production/*.yaml"]'
-        env:
-          NAMESPACE: ${{ vars.NAMESPACE }}
-          REPLICAS: ${{ vars.REPLICAS}}
-          IMAGE: ${{ vars.DOCKERHUB_USERNAME }}/solar-system:${{ github.sha}}
-          INGRESS_IP: ${{ env.INGRESS_IP }}
-
-      - name: check kubernetes files
-        run: cat  kubernetes/production/*.yaml
-      
-      - name: create MongoDB Secret
-        run: |
-          kubectl -n ${{ vars.NAMESPACE }} create secret generic mongo-db-creds \
-          --from-literal=MONGO_URI=${{ env.MONGO_URI}} \
-          --from-literal=MONGO_USERNAME=${{env.MONGO_USERNAME}} \
-          --from-literal=MONGO_PASSWORD=${{secrets.MONGO_PASSWORD}} \
-          --save-config \
-          --dry-run=client \
-          -o yaml | kubectl apply -f -
-
-      - name: Deploy to prod Env
-        run: |
-          kubectl apply -f kubernetes/production
-
-      - name: Set App ingress Host URL
-        id: set-ingress-host-address
-        run: |
-          HOST=$(kubectl -n ${{ vars.NAMESPACE }} get ingress -o jsonpath="{.items[0].spec.tls[0].hosts[0]}")
-          echo "APP_INGRESS_HOST=$HOST" >> "$GITHUB_OUTPUT"
 
   prod-integration-testing:
     if: github.ref == 'refs/heads/main'
@@ -316,9 +239,26 @@ jobs:
     steps:
     - name: Test URL Output using CURL and JQ
       env:
-        URL: ${{needs.prod-deploy.outputs.APP_INGRESS_URL}}
+        URL: ${{needs.prod-deploy.outputs.application-url}}
       run: |
         echo $URL
         echo "-------------------------------------"
         curl https://$URL/live -s -k | jq -r .status | grep -i live
 
+  slackNotification:
+    name: Slack Notification
+    needs: [dev-integration-testing,prod-integration-testing]
+    if: always()
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Slack Notification
+      uses: rtCamp/action-slack-notify@v2
+      env:
+        SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+        SLACK_CHANNEL: github-actions-channel
+        SLACK_COLOR: ${{ job.status }}
+        SLACK_ICON: https://github.com/smairi1998/solar-system/-/raw/main/images/saturn.png
+        SLACK_MESSAGE: ':hammer_and_wrench: triggered by ${{github.actor}}'
+        SLACK_TITLE: Information

@@ -1,0 +1,19 @@
+on:
+  pull_request: 
+        types:
+         - opened
+
+jobs:
+  testing-action:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+
+
+    - name: Post PR Comment
+      uses: smairi1998/docker-action-pr-gifs@main
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        giphy-api-key: ${{ secrets.GIPHY_API_KEY }}
