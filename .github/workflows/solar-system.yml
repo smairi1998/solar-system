@@ -161,7 +161,7 @@ jobs:
   dev-deploy:
     if: contains(github.ref, 'feature/')
     needs: docker
-    uses: .github/workflows/reuse-deployment.yml
+    uses: ./.github/workflows/reuse-deployment.yml
 
   dev-integration-testing:
     if: contains(github.ref, 'feature/')
@@ -180,7 +180,7 @@ jobs:
   prod-deploy:
     needs: docker
     if: github.ref == 'refs/heads/main'
-    uses: .github/workflows/reuse-deployment.yml
+    uses: ./.github/workflows/reuse-deployment.yml
 
   prod-integration-testing:
     if: github.ref == 'refs/heads/main'
