@@ -264,5 +264,5 @@ jobs:
         SLACK_CHANNEL: github-actions-channel
         SLACK_COLOR: ${{ job.status }}
         SLACK_ICON: https://github.com/smairi1998/solar-system/-/raw/main/images/saturn.png
-        SLACK_MESSAGE: "':hammer_and_wrench' triggered by ${{github.actor}}"
+        SLACK_MESSAGE: ':hammer_and_wrench: triggered by ${{github.actor}}'
         SLACK_TITLE: Information
